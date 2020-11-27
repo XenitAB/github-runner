@@ -15,11 +15,23 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+type authMethod string
+
+const authMethodEnv authMethod = "ENV"
+const authMethodCli authMethod = "CLI"
+
 type config struct {
-	organization   string
-	appID          int64
-	installationID int64
-	privateKeyPath string
+	organization                 string
+	appID                        int64
+	installationID               int64
+	privateKeyPath               string
+	useAzureKeyVault             bool
+	azureKeyVaultName            string
+	organizationKeyVaultSecret   string
+	appIDKeyVaultSecret          string
+	installationIDKeyVaultSecret string
+	privateKeyKeyVaultSecret     string
+	azureAuthenticationMethod    authMethod
 }
 
 func main() {
@@ -34,87 +46,44 @@ func main() {
 	appIDKeyVaultSecret := flag.String("app-id-kvsecret", "", "The key name of the Azure KeyVault secret containing the App ID name value.")
 	installationIDKeyVaultSecret := flag.String("installation-id-kvsecret", "", "The key name of the Azure KeyVault secret containing the Installation ID name value.")
 	privateKeyKeyVaultSecret := flag.String("private-key-kvsecret", "", "The key name of the Azure KeyVault secret containing the GitHub Private Key value.")
-	azureAuthenticationMethod := flag.String("azure-auth", "ENV", "The Azure authentication method. Valid value: ENV | CLI")
+	azureAuthenticationMethod := flag.String("azure-auth", string(authMethodEnv), "The Azure authentication method.")
 	flag.Parse()
 
-	config := config{}
-
-	tr := http.DefaultTransport
-	var itr *ghinstallation.Transport
 	var err error
 
-	if *useAzureKeyVault {
-		var authorizer autorest.Authorizer
-		if *azureAuthenticationMethod == "ENV" {
-			authorizer, err = kvauth.NewAuthorizerFromEnvironment()
-			if err != nil {
-				fmt.Printf("ERROR: unable to create vault authorizer: %v\n", err)
-				os.Exit(1)
-			}
-		} else if *azureAuthenticationMethod == "CLI" {
-			authorizer, err = kvauth.NewAuthorizerFromCLI()
-			if err != nil {
-				fmt.Printf("ERROR: unable to create vault authorizer: %v\n", err)
-				os.Exit(1)
-			}
-		} else {
-			fmt.Printf("ERROR: Valid values for --azure-auth is ENV and CLI. Received: %s", *azureAuthenticationMethod)
-			os.Exit(1)
-		}
+	authMethod, err := getAzureAuthMethod(*azureAuthenticationMethod)
+	if err != nil {
+		fmt.Printf("ERROR: Wrong auth method: %s\n", err)
+		os.Exit(1)
+	}
 
-		basicClient := keyvault.New()
-		basicClient.Authorizer = authorizer
+	config := config{
+		organization:                 *organization,
+		appID:                        *appID,
+		installationID:               *installationID,
+		privateKeyPath:               *privateKeyPath,
+		useAzureKeyVault:             *useAzureKeyVault,
+		azureKeyVaultName:            *azureKeyVaultName,
+		organizationKeyVaultSecret:   *organizationKeyVaultSecret,
+		appIDKeyVaultSecret:          *appIDKeyVaultSecret,
+		installationIDKeyVaultSecret: *installationIDKeyVaultSecret,
+		privateKeyKeyVaultSecret:     *privateKeyKeyVaultSecret,
+		azureAuthenticationMethod:    authMethod,
+	}
 
-		config.organization, err = getKeyVaultSecret(basicClient, *azureKeyVaultName, *organizationKeyVaultSecret)
+	transport := http.DefaultTransport
+	var itr *ghinstallation.Transport
+
+	if config.useAzureKeyVault {
+		itr, config.organization, err = getGitHubTokenAzure(config, transport)
 		if err != nil {
-			fmt.Printf("ERROR: Unable to get Organization secret from Azure KeyVault: %s", err)
-			os.Exit(1)
-		}
-
-		appIDString, err := getKeyVaultSecret(basicClient, *azureKeyVaultName, *appIDKeyVaultSecret)
-		if err != nil {
-			fmt.Printf("ERROR: Unable to get App ID secret from Azure KeyVault: %s", err)
-			os.Exit(1)
-		}
-
-		config.appID, err = stringToInt64(appIDString)
-		if err != nil {
-			fmt.Printf("ERROR: Unable to convert App ID from string to int64: %s", err)
-			os.Exit(1)
-		}
-
-		installationIDString, err := getKeyVaultSecret(basicClient, *azureKeyVaultName, *installationIDKeyVaultSecret)
-		if err != nil {
-			fmt.Printf("ERROR: Unable to get Installation ID secret from Azure KeyVault: %s", err)
-			os.Exit(1)
-		}
-
-		config.installationID, err = stringToInt64(installationIDString)
-		if err != nil {
-			fmt.Printf("ERROR: Unable to convert Installation ID from string to int64: %s", err)
-			os.Exit(1)
-		}
-
-		privateKeyString, err := getKeyVaultSecret(basicClient, *azureKeyVaultName, *privateKeyKeyVaultSecret)
-		if err != nil {
-			fmt.Printf("ERROR: Unable to get Private Key secret from Azure KeyVault: %s", err)
-			os.Exit(1)
-		}
-
-		itr, err = ghinstallation.New(tr, config.appID, config.installationID, []byte(privateKeyString))
-		if err != nil {
-			fmt.Printf("ERROR: Unable to get token: %s", err)
+			fmt.Println(err)
 			os.Exit(1)
 		}
 	} else {
-		config.organization = *organization
-		config.appID = *appID
-		config.installationID = *installationID
-		config.privateKeyPath = *privateKeyPath
-
-		itr, err = ghinstallation.NewKeyFromFile(tr, config.appID, config.installationID, config.privateKeyPath)
+		itr, err = getGitHubToken(config, transport)
 		if err != nil {
-			fmt.Printf("ERROR: Unable to get token: %s", err)
+			fmt.Println(err)
 			os.Exit(1)
 		}
 	}
@@ -122,9 +91,8 @@ func main() {
 	client := github.NewClient(&http.Client{Transport: itr})
 
 	ctx := context.Background()
-	runnerToken, res, err := client.Actions.CreateOrganizationRegistrationToken(ctx, config.organization)
+	runnerToken, _, err := client.Actions.CreateOrganizationRegistrationToken(ctx, config.organization)
 	if err != nil {
-		fmt.Println(res)
 		fmt.Printf("ERROR: Unable to get registration token: %s", err)
 		os.Exit(1)
 	}
@@ -146,4 +114,82 @@ func stringToInt64(intString string) (int64, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+func getAzureAuthMethod(authMethod string) (authMethod, error) {
+	if authMethod == string(authMethodEnv) {
+		return authMethodEnv, nil
+	} else if authMethod == string(authMethodCli) {
+		return authMethodCli, nil
+	} else {
+		return "", fmt.Errorf("ERROR: Valid values for --azure-auth is ENV and CLI. Received: %s", authMethod)
+	}
+}
+
+func getGitHubToken(config config, transport http.RoundTripper) (*ghinstallation.Transport, error) {
+	itr, err := ghinstallation.NewKeyFromFile(transport, config.appID, config.installationID, config.privateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("ERROR: Unable to get token: %s", err)
+	}
+
+	return itr, nil
+}
+
+func getGitHubTokenAzure(config config, transport http.RoundTripper) (*ghinstallation.Transport, string, error) {
+	var err error
+
+	var authorizer autorest.Authorizer
+	if config.azureAuthenticationMethod == authMethodEnv {
+		authorizer, err = kvauth.NewAuthorizerFromEnvironment()
+		if err != nil {
+			return nil, "", fmt.Errorf("ERROR: unable to create vault authorizer: %v\n", err)
+		}
+	} else if config.azureAuthenticationMethod == authMethodCli {
+		authorizer, err = kvauth.NewAuthorizerFromCLI()
+		if err != nil {
+			return nil, "", fmt.Errorf("ERROR: unable to create vault authorizer: %v\n", err)
+		}
+	} else {
+		return nil, "", fmt.Errorf("ERROR: Valid values for --azure-auth is ENV and CLI. Received: %s", config.azureAuthenticationMethod)
+	}
+
+	basicClient := keyvault.New()
+	basicClient.Authorizer = authorizer
+
+	orgnization, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.organizationKeyVaultSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to get Organization secret from Azure KeyVault: %s", err)
+	}
+
+	appIDString, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.appIDKeyVaultSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to get App ID secret from Azure KeyVault: %s", err)
+	}
+
+	appID, err := stringToInt64(appIDString)
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to convert App ID from string to int64: %s", err)
+	}
+
+	installationIDString, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.installationIDKeyVaultSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to get Installation ID secret from Azure KeyVault: %s", err)
+	}
+
+	installationID, err := stringToInt64(installationIDString)
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to convert Installation ID from string to int64: %s", err)
+	}
+
+	privateKeyString, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.privateKeyKeyVaultSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to get Private Key secret from Azure KeyVault: %s", err)
+	}
+
+	itr, err := ghinstallation.New(transport, appID, installationID, []byte(privateKeyString))
+	if err != nil {
+		return nil, "", fmt.Errorf("ERROR: Unable to get token: %s", err)
+	}
+
+	return itr, orgnization, nil
 }
