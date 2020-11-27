@@ -21,6 +21,11 @@ type tokenType string
 const tokenTypeRegister tokenType = "REGISTER"
 const tokenTypeRemove tokenType = "REMOVE"
 
+type valueSource string
+
+const valueSourceArguments valueSource = "ARGUMENTS"
+const valueSourceAzureKeyVault valueSource = "AZURE_KEYVAULT"
+
 type authMethod string
 
 const authMethodEnv authMethod = "ENV"
@@ -35,11 +40,11 @@ type config struct {
 	tokenType                    tokenType
 	azureAuthenticationMethod    authMethod
 	outputMethod                 outputMethod
+	valueSource                  valueSource
 	organization                 string
 	appID                        int64
 	installationID               int64
 	privateKeyPath               string
-	useAzureKeyVault             bool
 	azureKeyVaultName            string
 	organizationKeyVaultSecret   string
 	appIDKeyVaultSecret          string
@@ -73,16 +78,19 @@ func getGitHubRunnerToken() (string, error) {
 	transport := http.DefaultTransport
 	var itr *ghinstallation.Transport
 
-	if config.useAzureKeyVault {
-		itr, config.organization, err = getGitHubTokenAzure(config, transport)
-		if err != nil {
-			return "", err
-		}
-	} else {
+	switch config.valueSource {
+	case valueSourceArguments:
 		itr, err = getGitHubToken(config, transport)
 		if err != nil {
 			return "", err
 		}
+	case valueSourceAzureKeyVault:
+		itr, config.organization, err = getGitHubTokenAzure(config, transport)
+		if err != nil {
+			return "", err
+		}
+	default:
+		return "", fmt.Errorf("ERROR: Unknown value source: %s\n", config.valueSource)
 	}
 
 	client := github.NewClient(&http.Client{Transport: itr})
@@ -132,11 +140,11 @@ func getConfiguration() (config, error) {
 	tokenTypeFlag := flag.String("token-type", "REGISTER", "Token type to get from GitHub.")
 	azureAuthenticationMethod := flag.String("azure-auth", string(authMethodEnv), "The Azure authentication method.")
 	outputMethodFlag := flag.String("output", "TOKEN", "How should the output be printed.")
+	valueSourceFlag := flag.String("value-source", "ARGUMENTS", "Source of the GitHub values.")
 	organization := flag.String("organization", "", "Name of the GitHub organization.")
 	appID := flag.Int64("app-id", 0, "Application ID of the GitHub App.")
 	installationID := flag.Int64("installation-id", 0, "Installation ID of the GitHub App.")
 	privateKeyPath := flag.String("private-key-path", "", "The private key (PEM format) from the GitHub App.")
-	useAzureKeyVault := flag.Bool("use-azure-keyvault", false, "Should parameters be extracted from Azure KeyVault.")
 	azureKeyVaultName := flag.String("azure-keyvault-name", "", "The name of the Azure KeyVault containing the secrets.")
 	organizationKeyVaultSecret := flag.String("organization-kvsecret", "", "The key name of the Azure KeyVault secret containing the organization name value.")
 	appIDKeyVaultSecret := flag.String("app-id-kvsecret", "", "The key name of the Azure KeyVault secret containing the App ID name value.")
@@ -159,15 +167,20 @@ func getConfiguration() (config, error) {
 		return config{}, fmt.Errorf("ERROR: Unable to get output method: %s\n", err)
 	}
 
+	valueSource, err := getValueSource(*valueSourceFlag)
+	if err != nil {
+		return config{}, fmt.Errorf("Unable to get value source: %s\n", err)
+	}
+
 	return config{
 		tokenType:                    tokenType,
 		azureAuthenticationMethod:    authMethod,
 		outputMethod:                 outputMethod,
+		valueSource:                  valueSource,
 		organization:                 *organization,
 		appID:                        *appID,
 		installationID:               *installationID,
 		privateKeyPath:               *privateKeyPath,
-		useAzureKeyVault:             *useAzureKeyVault,
 		azureKeyVaultName:            *azureKeyVaultName,
 		organizationKeyVaultSecret:   *organizationKeyVaultSecret,
 		appIDKeyVaultSecret:          *appIDKeyVaultSecret,
@@ -291,5 +304,16 @@ func getOutputMethod(outputMethod string) (outputMethod, error) {
 		return outputMethodJson, nil
 	default:
 		return "", fmt.Errorf("ERROR: Valid values for --output are TOKEN and JSON. Received: %s\n", outputMethod)
+	}
+}
+
+func getValueSource(valueSource string) (valueSource, error) {
+	switch valueSource {
+	case string(valueSourceArguments):
+		return valueSourceArguments, nil
+	case string(valueSourceAzureKeyVault):
+		return valueSourceAzureKeyVault, nil
+	default:
+		return "", fmt.Errorf("ERROR: Valid values for --value-source are ARGUMENTS and AZURE_KEYVAULT. Received: %s\n", valueSource)
 	}
 }

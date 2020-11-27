@@ -72,30 +72,30 @@ az keyvault secret set --vault-name <Azure KeyVault Name> --name github-installa
 #### Azure ENV Authentication
 
 ```shell
-go run cmd/github-runner/main.go --use-azure-keyvault --azure-keyvault-name <Azure KeyVault Name> --organization-kvsecret github-organization --app-id-kvsecret github-app-id --installation-id-kvsecret github-installation-id --private-key-kvsecret github-private-key
+go run cmd/github-runner/main.go --value-source AZURE_KEYVAULT --azure-keyvault-name <Azure KeyVault Name> --organization-kvsecret github-organization --app-id-kvsecret github-app-id --installation-id-kvsecret github-installation-id --private-key-kvsecret github-private-key
 ```
 
 #### Azure CLI Authentication
 
 ```shell
-go run cmd/github-runner/main.go --use-azure-keyvault --azure-keyvault-name <Azure KeyVault Name> --organization-kvsecret github-organization --app-id-kvsecret github-app-id --installation-id-kvsecret github-installation-id --private-key-kvsecret github-private-key --azure-auth CLI
+go run cmd/github-runner/main.go --value-source AZURE_KEYVAULT --azure-keyvault-name <Azure KeyVault Name> --organization-kvsecret github-organization --app-id-kvsecret github-app-id --installation-id-kvsecret github-installation-id --private-key-kvsecret github-private-key --azure-auth CLI
 ```
 
 ### Other arguments
 
-| Argument                     | Description                                                                          | Type / Options      | Default    | Required when              |
-| ---------------------------- | ------------------------------------------------------------------------------------ | ------------------- | ---------- | -------------------------- |
-| `--token-type`               | Token type to get from GitHub.                                                       | `REGISTER` `REMOVE` | `REGISTER` | Never                      |
-| `--azure-auth`               | The Azure authentication method.                                                     | `ENV` `CLI`         | `CLI`      | Never                      |
-| `--output`                   | How should the output be printed.                                                    | `TOKEN` `JSON`      | `TOKEN`    | Never                      |
-| `--organization`             | Name of the GitHub organization.                                                     | `string`            | `""`       | `--useAzureKeyVault flase` |
-| `--app-id`                   | Application ID of the GitHub App.                                                    | `string`            | `""`       | `--useAzureKeyVault flase` |
-| `--installation-id`          | Installation ID of the GitHub App.                                                   | `int64`             | `0`        | `--useAzureKeyVault flase` |
-| `--private-key-path`         | The private key (PEM format) from the GitHub App.                                    | `int64`             | `0`        | `--useAzureKeyVault flase` |
-| `--useAzureKeyVault`         | Should parameters be extracted from Azure KeyVault.                                  | `bool`              | `false`    | Never                      |
-| `--azure-keyvault-name`      | The name of the Azure KeyVault containing the secrets.                               | `string`            | `""`       | `--useAzureKeyVault true`  |
-| `--organization-kvsecret`    | The key name of the Azure KeyVault secret containing the organization name value.    | `string`            | `""`       | `--useAzureKeyVault true`  |
-| `--app-id-kvsecret`          | The name of the Azure KeyVault containing the secrets.                               | `string`            | `""`       | `--useAzureKeyVault true`  |
-| `--installation-id-kvsecret` | The key name of the Azure KeyVault secret containing the Installation ID name value. | `string`            | `""`       | `--useAzureKeyVault true`  |
-| `--private-key-kvsecret`     | he key name of the Azure KeyVault secret containing the GitHub Private Key value.    | `string`            | `""`       | `--useAzureKeyVault true`  |
-| `--azure-keyvault-name`      | The name of the Azure KeyVault containing the secrets.                               | `string`            | `""`       | `--useAzureKeyVault true`  |
+| Argument                     | Description                                                                          | Type / Options               | Default     | Required when                   |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ---------------------------- | ----------- | ------------------------------- |
+| `--token-type`               | Token type to get from GitHub.                                                       | `REGISTER` `REMOVE`          | `REGISTER`  | Never                           |
+| `--azure-auth`               | The Azure authentication method.                                                     | `ENV` `CLI`                  | `CLI`       | Never                           |
+| `--output`                   | How should the output be printed.                                                    | `TOKEN` `JSON`               | `TOKEN`     | Never                           |
+| `--value-source`             | Source of the GitHub values.                                                         | `ARGUMENTS` `AZURE_KEYVAULT` | `ARGUMENTS` | Never                           |
+| `--organization`             | Name of the GitHub organization.                                                     | `string`                     | `""`        | `--value-source ARGUMENTS`      |
+| `--app-id`                   | Application ID of the GitHub App.                                                    | `string`                     | `""`        | `--value-source ARGUMENTS`      |
+| `--installation-id`          | Installation ID of the GitHub App.                                                   | `int64`                      | `0`         | `--value-source ARGUMENTS`      |
+| `--private-key-path`         | The private key (PEM format) from the GitHub App.                                    | `int64`                      | `0`         | `--value-source ARGUMENTS`      |
+| `--azure-keyvault-name`      | The name of the Azure KeyVault containing the secrets.                               | `string`                     | `""`        | `--value-source AZURE_KEYVAULT` |
+| `--organization-kvsecret`    | The key name of the Azure KeyVault secret containing the organization name value.    | `string`                     | `""`        | `--value-source AZURE_KEYVAULT` |
+| `--app-id-kvsecret`          | The name of the Azure KeyVault containing the secrets.                               | `string`                     | `""`        | `--value-source AZURE_KEYVAULT` |
+| `--installation-id-kvsecret` | The key name of the Azure KeyVault secret containing the Installation ID name value. | `string`                     | `""`        | `--value-source AZURE_KEYVAULT` |
+| `--private-key-kvsecret`     | he key name of the Azure KeyVault secret containing the GitHub Private Key value.    | `string`                     | `""`        | `--value-source AZURE_KEYVAULT` |
+| `--azure-keyvault-name`      | The name of the Azure KeyVault containing the secrets.                               | `string`                     | `""`        | `--value-source AZURE_KEYVAULT` |
