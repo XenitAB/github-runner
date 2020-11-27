@@ -8,6 +8,8 @@ The big reason for this is to be able to create a GitHub App that is limited to 
 
 The `stdout` will be the token that can be used to configure the self-hosted runner. It can either be configured through cli parameters or using secrets in Azure KeyVault (ENV and CLI authentication methods are supported).
 
+Example usage can be found [here](https://github.com/XenitAB/packer-templates/tree/main/templates/azure/github-runner).
+
 ## Creating a GitHub App
 
 The following is needed:
@@ -78,3 +80,22 @@ go run cmd/github-runner/main.go --use-azure-keyvault --azure-keyvault-name <Azu
 ```shell
 go run cmd/github-runner/main.go --use-azure-keyvault --azure-keyvault-name <Azure KeyVault Name> --organization-kvsecret github-organization --app-id-kvsecret github-app-id --installation-id-kvsecret github-installation-id --private-key-kvsecret github-private-key --azure-auth CLI
 ```
+
+### Other arguments
+
+| Argument                     | Description                                                                          | Type / Options      | Default    | Required when              |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ------------------- | ---------- | -------------------------- |
+| `--token-type`               | Token type to get from GitHub.                                                       | `REGISTER` `REMOVE` | `REGISTER` | Never                      |
+| `--azure-auth`               | The Azure authentication method.                                                     | `ENV` `CLI`         | `CLI`      | Never                      |
+| `--output`                   | How should the output be printed.                                                    | `TOKEN` `JSON`      | `TOKEN`    | Never                      |
+| `--organization`             | Name of the GitHub organization.                                                     | `string`            | `""`       | `--useAzureKeyVault flase` |
+| `--app-id`                   | Application ID of the GitHub App.                                                    | `string`            | `""`       | `--useAzureKeyVault flase` |
+| `--installation-id`          | Installation ID of the GitHub App.                                                   | `int64`             | `0`        | `--useAzureKeyVault flase` |
+| `--private-key-path`         | The private key (PEM format) from the GitHub App.                                    | `int64`             | `0`        | `--useAzureKeyVault flase` |
+| `--useAzureKeyVault`         | Should parameters be extracted from Azure KeyVault.                                  | `bool`              | `false`    | Never                      |
+| `--azure-keyvault-name`      | The name of the Azure KeyVault containing the secrets.                               | `string`            | `""`       | `--useAzureKeyVault true`  |
+| `--organization-kvsecret`    | The key name of the Azure KeyVault secret containing the organization name value.    | `string`            | `""`       | `--useAzureKeyVault true`  |
+| `--app-id-kvsecret`          | The name of the Azure KeyVault containing the secrets.                               | `string`            | `""`       | `--useAzureKeyVault true`  |
+| `--installation-id-kvsecret` | The key name of the Azure KeyVault secret containing the Installation ID name value. | `string`            | `""`       | `--useAzureKeyVault true`  |
+| `--private-key-kvsecret`     | he key name of the Azure KeyVault secret containing the GitHub Private Key value.    | `string`            | `""`       | `--useAzureKeyVault true`  |
+| `--azure-keyvault-name`      | The name of the Azure KeyVault containing the secrets.                               | `string`            | `""`       | `--useAzureKeyVault true`  |

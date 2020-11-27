@@ -16,6 +16,11 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+type tokenType string
+
+const tokenTypeRegister tokenType = "REGISTER"
+const tokenTypeRemove tokenType = "REMOVE"
+
 type authMethod string
 
 const authMethodEnv authMethod = "ENV"
@@ -27,6 +32,9 @@ const outputMethodToken outputMethod = "TOKEN"
 const outputMethodJson outputMethod = "JSON"
 
 type config struct {
+	tokenType                    tokenType
+	azureAuthenticationMethod    authMethod
+	outputMethod                 outputMethod
 	organization                 string
 	appID                        int64
 	installationID               int64
@@ -37,13 +45,12 @@ type config struct {
 	appIDKeyVaultSecret          string
 	installationIDKeyVaultSecret string
 	privateKeyKeyVaultSecret     string
-	azureAuthenticationMethod    authMethod
-	outputMethod                 outputMethod
 }
 
 type jsonOutput struct {
-	Token        string `json:"token"`
-	Organization string `json:"organization"`
+	TokenType    tokenType `json:"token_type"`
+	Token        string    `json:"token"`
+	Organization string    `json:"organization"`
 }
 
 func main() {
@@ -81,30 +88,50 @@ func getGitHubRunnerToken() (string, error) {
 	client := github.NewClient(&http.Client{Transport: itr})
 
 	ctx := context.Background()
-	runnerToken, _, err := client.Actions.CreateOrganizationRegistrationToken(ctx, config.organization)
-	if err != nil {
-		return "", fmt.Errorf("ERROR: Unable to get registration token: %s", err)
+
+	var runnerToken string
+
+	switch config.tokenType {
+	case tokenTypeRegister:
+		registrationToken, _, err := client.Actions.CreateOrganizationRegistrationToken(ctx, config.organization)
+		if err != nil {
+			return "", fmt.Errorf("ERROR: Unable to get registration token: %s\n", err)
+		}
+		runnerToken = *registrationToken.Token
+	case tokenTypeRemove:
+		removeToken, _, err := client.Actions.CreateOrganizationRemoveToken(ctx, config.organization)
+		if err != nil {
+			return "", fmt.Errorf("ERROR: Unable to get registration token: %s\n", err)
+		}
+		runnerToken = *removeToken.Token
+	default:
+		return "", fmt.Errorf("ERROR: Unknown token type.\n")
 	}
 
-	if config.outputMethod == outputMethodToken {
-		return *runnerToken.Token, nil
-	} else if config.outputMethod == outputMethodJson {
+	switch config.outputMethod {
+	case outputMethodToken:
+		return runnerToken, nil
+	case outputMethodJson:
 		output := jsonOutput{
-			Token:        *runnerToken.Token,
+			TokenType:    config.tokenType,
+			Token:        runnerToken,
 			Organization: config.organization,
 		}
 		jsonData, err := json.Marshal(output)
 		if err != nil {
-			return "", fmt.Errorf("ERROR: Unable to marshal json: %s", err)
+			return "", fmt.Errorf("ERROR: Unable to marshal json: %s\n", err)
 		}
 		return string(jsonData), nil
-	} else {
-		return "", fmt.Errorf("ERROR: You're not expected to get this error.")
+	default:
+		return "", fmt.Errorf("ERROR: Unknown output method: %s\n", config.outputMethod)
 	}
 }
 
 func getConfiguration() (config, error) {
 	_ = flag.Bool("debug", false, "Enables debug mode.")
+	tokenTypeFlag := flag.String("token-type", "REGISTER", "Token type to get from GitHub.")
+	azureAuthenticationMethod := flag.String("azure-auth", string(authMethodEnv), "The Azure authentication method.")
+	outputMethodFlag := flag.String("output", "TOKEN", "How should the output be printed.")
 	organization := flag.String("organization", "", "Name of the GitHub organization.")
 	appID := flag.Int64("app-id", 0, "Application ID of the GitHub App.")
 	installationID := flag.Int64("installation-id", 0, "Installation ID of the GitHub App.")
@@ -115,21 +142,27 @@ func getConfiguration() (config, error) {
 	appIDKeyVaultSecret := flag.String("app-id-kvsecret", "", "The key name of the Azure KeyVault secret containing the App ID name value.")
 	installationIDKeyVaultSecret := flag.String("installation-id-kvsecret", "", "The key name of the Azure KeyVault secret containing the Installation ID name value.")
 	privateKeyKeyVaultSecret := flag.String("private-key-kvsecret", "", "The key name of the Azure KeyVault secret containing the GitHub Private Key value.")
-	azureAuthenticationMethod := flag.String("azure-auth", string(authMethodEnv), "The Azure authentication method.")
-	outputMethodFlag := flag.String("output", "TOKEN", "How should the output be printed.")
 	flag.Parse()
+
+	tokenType, err := getTokenType(*tokenTypeFlag)
+	if err != nil {
+		return config{}, fmt.Errorf("Unable to get token type: %s\n", err)
+	}
 
 	authMethod, err := getAzureAuthMethod(*azureAuthenticationMethod)
 	if err != nil {
-		return config{}, fmt.Errorf("ERROR: Wrong auth method: %s\n", err)
+		return config{}, fmt.Errorf("ERROR: Unable to get auth method: %s\n", err)
 	}
 
 	outputMethod, err := getOutputMethod(*outputMethodFlag)
 	if err != nil {
-		return config{}, fmt.Errorf("ERROR: Wrong auth method: %s\n", err)
+		return config{}, fmt.Errorf("ERROR: Unable to get output method: %s\n", err)
 	}
 
 	return config{
+		tokenType:                    tokenType,
+		azureAuthenticationMethod:    authMethod,
+		outputMethod:                 outputMethod,
 		organization:                 *organization,
 		appID:                        *appID,
 		installationID:               *installationID,
@@ -140,8 +173,6 @@ func getConfiguration() (config, error) {
 		appIDKeyVaultSecret:          *appIDKeyVaultSecret,
 		installationIDKeyVaultSecret: *installationIDKeyVaultSecret,
 		privateKeyKeyVaultSecret:     *privateKeyKeyVaultSecret,
-		azureAuthenticationMethod:    authMethod,
-		outputMethod:                 outputMethod,
 	}, nil
 }
 
@@ -149,18 +180,19 @@ func getGitHubTokenAzure(config config, transport http.RoundTripper) (*ghinstall
 	var err error
 
 	var authorizer autorest.Authorizer
-	if config.azureAuthenticationMethod == authMethodEnv {
+	switch config.azureAuthenticationMethod {
+	case authMethodEnv:
 		authorizer, err = kvauth.NewAuthorizerFromEnvironment()
 		if err != nil {
 			return nil, "", fmt.Errorf("ERROR: unable to create vault authorizer: %v\n", err)
 		}
-	} else if config.azureAuthenticationMethod == authMethodCli {
+	case authMethodCli:
 		authorizer, err = kvauth.NewAuthorizerFromCLI()
 		if err != nil {
 			return nil, "", fmt.Errorf("ERROR: unable to create vault authorizer: %v\n", err)
 		}
-	} else {
-		return nil, "", fmt.Errorf("ERROR: Valid values for --azure-auth is ENV and CLI. Received: %s", config.azureAuthenticationMethod)
+	default:
+		return nil, "", fmt.Errorf("ERROR: Unknown auth method: %s\n", config.azureAuthenticationMethod)
 	}
 
 	basicClient := keyvault.New()
@@ -168,37 +200,37 @@ func getGitHubTokenAzure(config config, transport http.RoundTripper) (*ghinstall
 
 	orgnization, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.organizationKeyVaultSecret)
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to get Organization secret from Azure KeyVault: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to get Organization secret from Azure KeyVault: %s\n", err)
 	}
 
 	appIDString, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.appIDKeyVaultSecret)
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to get App ID secret from Azure KeyVault: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to get App ID secret from Azure KeyVault: %s\n", err)
 	}
 
 	appID, err := stringToInt64(appIDString)
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to convert App ID from string to int64: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to convert App ID from string to int64: %s\n", err)
 	}
 
 	installationIDString, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.installationIDKeyVaultSecret)
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to get Installation ID secret from Azure KeyVault: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to get Installation ID secret from Azure KeyVault: %s\n", err)
 	}
 
 	installationID, err := stringToInt64(installationIDString)
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to convert Installation ID from string to int64: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to convert Installation ID from string to int64: %s\n", err)
 	}
 
 	privateKeyString, err := getKeyVaultSecret(basicClient, config.azureKeyVaultName, config.privateKeyKeyVaultSecret)
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to get Private Key secret from Azure KeyVault: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to get Private Key secret from Azure KeyVault: %s\n", err)
 	}
 
 	itr, err := ghinstallation.New(transport, appID, installationID, []byte(privateKeyString))
 	if err != nil {
-		return nil, "", fmt.Errorf("ERROR: Unable to get token: %s", err)
+		return nil, "", fmt.Errorf("ERROR: Unable to get token: %s\n", err)
 	}
 
 	return itr, orgnization, nil
@@ -207,7 +239,7 @@ func getGitHubTokenAzure(config config, transport http.RoundTripper) (*ghinstall
 func getGitHubToken(config config, transport http.RoundTripper) (*ghinstallation.Transport, error) {
 	itr, err := ghinstallation.NewKeyFromFile(transport, config.appID, config.installationID, config.privateKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("ERROR: Unable to get token: %s", err)
+		return nil, fmt.Errorf("ERROR: Unable to get token: %s\n", err)
 	}
 
 	return itr, nil
@@ -229,22 +261,35 @@ func stringToInt64(intString string) (int64, error) {
 	return n, nil
 }
 
+func getTokenType(tokenType string) (tokenType, error) {
+	switch tokenType {
+	case string(tokenTypeRegister):
+		return tokenTypeRegister, nil
+	case string(tokenTypeRemove):
+		return tokenTypeRemove, nil
+	default:
+		return "", fmt.Errorf("ERROR: Valid values for --token-type are REGISTER and REMOVE. Received: %s\n", tokenType)
+	}
+}
+
 func getAzureAuthMethod(authMethod string) (authMethod, error) {
-	if authMethod == string(authMethodEnv) {
+	switch authMethod {
+	case string(authMethodEnv):
 		return authMethodEnv, nil
-	} else if authMethod == string(authMethodCli) {
+	case string(authMethodCli):
 		return authMethodCli, nil
-	} else {
-		return "", fmt.Errorf("ERROR: Valid values for --azure-auth is ENV and CLI. Received: %s", authMethod)
+	default:
+		return "", fmt.Errorf("ERROR: Valid values for --azure-auth are ENV and CLI. Received: %s\n", authMethod)
 	}
 }
 
 func getOutputMethod(outputMethod string) (outputMethod, error) {
-	if outputMethod == string(outputMethodToken) {
+	switch outputMethod {
+	case string(outputMethodToken):
 		return outputMethodToken, nil
-	} else if outputMethod == string(outputMethodJson) {
+	case string(outputMethodJson):
 		return outputMethodJson, nil
-	} else {
-		return "", fmt.Errorf("ERROR: Valid values for --output is TOKEN and JSON. Received: %s", outputMethod)
+	default:
+		return "", fmt.Errorf("ERROR: Valid values for --output are TOKEN and JSON. Received: %s\n", outputMethod)
 	}
 }
