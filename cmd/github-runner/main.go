@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -20,6 +21,11 @@ type authMethod string
 const authMethodEnv authMethod = "ENV"
 const authMethodCli authMethod = "CLI"
 
+type outputMethod string
+
+const outputMethodToken outputMethod = "TOKEN"
+const outputMethodJson outputMethod = "JSON"
+
 type config struct {
 	organization                 string
 	appID                        int64
@@ -32,16 +38,23 @@ type config struct {
 	installationIDKeyVaultSecret string
 	privateKeyKeyVaultSecret     string
 	azureAuthenticationMethod    authMethod
+	outputMethod                 outputMethod
+}
+
+type jsonOutput struct {
+	Token        string `json:"token"`
+	Organization string `json:"organization"`
 }
 
 func main() {
-	runnerToken, err := getGitHubRunnerToken()
+	output, err := getGitHubRunnerToken()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	fmt.Println(runnerToken)
+	fmt.Println(output)
+	os.Exit(0)
 }
 
 func getGitHubRunnerToken() (string, error) {
@@ -73,7 +86,21 @@ func getGitHubRunnerToken() (string, error) {
 		return "", fmt.Errorf("ERROR: Unable to get registration token: %s", err)
 	}
 
-	return *runnerToken.Token, nil
+	if config.outputMethod == outputMethodToken {
+		return *runnerToken.Token, nil
+	} else if config.outputMethod == outputMethodJson {
+		output := jsonOutput{
+			Token:        *runnerToken.Token,
+			Organization: config.organization,
+		}
+		jsonData, err := json.Marshal(output)
+		if err != nil {
+			return "", fmt.Errorf("ERROR: Unable to marshal json: %s", err)
+		}
+		return string(jsonData), nil
+	} else {
+		return "", fmt.Errorf("ERROR: You're not expected to get this error.")
+	}
 }
 
 func getConfiguration() (config, error) {
@@ -89,11 +116,15 @@ func getConfiguration() (config, error) {
 	installationIDKeyVaultSecret := flag.String("installation-id-kvsecret", "", "The key name of the Azure KeyVault secret containing the Installation ID name value.")
 	privateKeyKeyVaultSecret := flag.String("private-key-kvsecret", "", "The key name of the Azure KeyVault secret containing the GitHub Private Key value.")
 	azureAuthenticationMethod := flag.String("azure-auth", string(authMethodEnv), "The Azure authentication method.")
+	outputMethodFlag := flag.String("output", "TOKEN", "How should the output be printed.")
 	flag.Parse()
 
-	var err error
-
 	authMethod, err := getAzureAuthMethod(*azureAuthenticationMethod)
+	if err != nil {
+		return config{}, fmt.Errorf("ERROR: Wrong auth method: %s\n", err)
+	}
+
+	outputMethod, err := getOutputMethod(*outputMethodFlag)
 	if err != nil {
 		return config{}, fmt.Errorf("ERROR: Wrong auth method: %s\n", err)
 	}
@@ -110,6 +141,7 @@ func getConfiguration() (config, error) {
 		installationIDKeyVaultSecret: *installationIDKeyVaultSecret,
 		privateKeyKeyVaultSecret:     *privateKeyKeyVaultSecret,
 		azureAuthenticationMethod:    authMethod,
+		outputMethod:                 outputMethod,
 	}, nil
 }
 
@@ -204,5 +236,15 @@ func getAzureAuthMethod(authMethod string) (authMethod, error) {
 		return authMethodCli, nil
 	} else {
 		return "", fmt.Errorf("ERROR: Valid values for --azure-auth is ENV and CLI. Received: %s", authMethod)
+	}
+}
+
+func getOutputMethod(outputMethod string) (outputMethod, error) {
+	if outputMethod == string(outputMethodToken) {
+		return outputMethodToken, nil
+	} else if outputMethod == string(outputMethodJson) {
+		return outputMethodJson, nil
+	} else {
+		return "", fmt.Errorf("ERROR: Valid values for --output is TOKEN and JSON. Received: %s", outputMethod)
 	}
 }
