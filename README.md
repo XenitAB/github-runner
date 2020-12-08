@@ -65,8 +65,8 @@ go run cmd/github-runner/main.go --organization weaveworks-gitops-poc --app-id <
 ```shell
 az keyvault secret set --vault-name <Azure KeyVault Name> --name github-private-key --file <private key file>
 az keyvault secret set --vault-name <Azure KeyVault Name> --name github-organization --value <GitHub organization name>
-az keyvault secret set --vault-name <Azure KeyVault Name> --name github-app-id --file <GitHub Application ID>
-az keyvault secret set --vault-name <Azure KeyVault Name> --name github-installation-id --file <GitHub Installation ID>
+az keyvault secret set --vault-name <Azure KeyVault Name> --name github-app-id --value <GitHub Application ID>
+az keyvault secret set --vault-name <Azure KeyVault Name> --name github-installation-id --value <GitHub Installation ID>
 ```
 
 #### Azure ENV Authentication
